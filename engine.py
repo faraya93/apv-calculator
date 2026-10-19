@@ -154,23 +154,75 @@ def renta_liquida_imponible(sueldo_bruto: float, apv_mensual: float, p: Parametr
     return max(0.0, rli)
 
 
-def iusc_mensual(rli: float, p: Parametros) -> float:
-    """Impuesto único mensual: RLI × factor − cantidad a rebajar.
+def impuesto_por_tramos(base: float, unidad: float) -> float:
+    """Impuesto = base × factor − rebaja × unidad, con la tabla IUSC/IGC.
+
+    `unidad` es la UTM en el impuesto mensual y la UTA en el Global
+    Complementario anual. Los factores y las rebajas (en unidades de la
+    tabla) son los mismos.
 
     Verificado contra la tabla SII de octubre 2026:
     tramo 13,5–30 UTM, factor 0,04, rebaja $38.961,54 = 0,54 × $72.151.
     """
-    if rli <= 0:
+    if base <= 0 or unidad <= 0:
         return 0.0
-    rli_utm = rli / p.utm
+    base_unidades = base / unidad
     factor = 0.0
-    rebaja_utm = 0.0
+    rebaja_unidades = 0.0
     for hasta, fac, reb in IUSC_TRAMOS_UTM:
-        factor, rebaja_utm = fac, reb
-        if rli_utm <= hasta:
+        factor, rebaja_unidades = fac, reb
+        if base_unidades <= hasta:
             break
-    impuesto = rli * factor - rebaja_utm * p.utm
-    return max(0.0, impuesto)
+    return max(0.0, base * factor - rebaja_unidades * unidad)
+
+
+def iusc_mensual(rli: float, p: Parametros) -> float:
+    """Impuesto único mensual sobre la renta líquida imponible."""
+    return impuesto_por_tramos(rli, p.utm)
+
+
+def uta_pesos(p: Parametros) -> float:
+    """UTA aproximada como 12 × la UTM indicada.
+
+    La UTA legal es 12 × la UTM de diciembre. Aquí se usa la UTM que el
+    usuario fijó, la misma del cálculo mensual.
+    """
+    return p.utm * MESES_ANIO
+
+
+def global_complementario(base_anual: float, p: Parametros) -> float:
+    """Impuesto Global Complementario anual, tabla de tramos en UTA.
+
+    Proyección informativa. Los dividendos hipotecarios no se restan: en
+    Chile las personas naturales no deducen intereses del crédito hipotecario.
+    """
+    return impuesto_por_tramos(base_anual, uta_pesos(p))
+
+
+def base_anual_operacion_renta(rli_mensual: float, arriendos_afectos: float) -> float:
+    """12 × RLI mensual + arriendos que no están exentos por DFL2."""
+    return max(0.0, rli_mensual) * MESES_ANIO + max(0.0, arriendos_afectos)
+
+
+def separar_arriendos(montos_y_dfl2: list[tuple[float, bool]]) -> tuple[float, float]:
+    """Separa arriendos anuales en (afectos, exentos por DFL2).
+
+    El arriendo marcado DFL2 no entra a la base del Global Complementario.
+    """
+    afectos = 0.0
+    exentos = 0.0
+    for monto, es_dfl2 in montos_y_dfl2:
+        try:
+            valor = float(monto)
+        except (TypeError, ValueError):
+            valor = 0.0
+        if valor != valor or valor < 0:  # NaN o negativo
+            valor = 0.0
+        if es_dfl2:
+            exentos += valor
+        else:
+            afectos += valor
+    return afectos, exentos
 
 
 def tasa_marginal(rli: float, p: Parametros) -> float:
@@ -179,6 +231,19 @@ def tasa_marginal(rli: float, p: Parametros) -> float:
         if rli_utm <= hasta:
             return fac
     return 0.40
+
+
+def apv_para_iusc_cero(sueldo_bruto: float, p: Parametros) -> float:
+    """APV mensual mínimo que llevaría el IUSC a $0, sin tope de 50 UF.
+
+    Es la resta que ya usa apv_optimo_mensual, antes de recortar al tope:
+    max(0, RLI sin APV − umbral del tramo exento). El umbral sale del primer
+    corte de IUSC_TRAMOS_UTM (13,5 UTM). Puede ser mayor que 50 UF: en ese
+    caso el impuesto cero no es alcanzable.
+    """
+    rli0 = renta_liquida_sin_apv(sueldo_bruto, p)
+    umbral_utm = IUSC_TRAMOS_UTM[0][0]
+    return max(0.0, rli0 - umbral_utm * p.utm)
 
 
 def apv_optimo_mensual(sueldo_bruto: float, p: Parametros) -> tuple[float, str]:
@@ -192,10 +257,9 @@ def apv_optimo_mensual(sueldo_bruto: float, p: Parametros) -> tuple[float, str]:
     if rli0 <= 0:
         return 0.0, "Sin renta líquida imponible no hay IUSC ni beneficio APV-B."
 
-    exento = 13.5 * p.utm
     tope = tope_mensual_pesos(p)
     # Lo que falta para caer al tramo exento. Si ya está exento, óptimo = 0.
-    para_exento = max(0.0, rli0 - exento)
+    para_exento = apv_para_iusc_cero(sueldo_bruto, p)
     optimo = min(tope, para_exento, rli0)
 
     if optimo <= 0:
