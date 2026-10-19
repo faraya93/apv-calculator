@@ -22,7 +22,7 @@ from engine import (
     simular,
 )
 from liquidacion import leer_liquidacion
-from llm_extract import extract_with_llm
+from llm_extract import extract_with_llm, generar_recomendacion
 
 # Campos que el respaldo por IA puede completar (claves locales → clave LLM).
 _CAMPOS_LLM = {
@@ -311,6 +311,20 @@ with st.sidebar:
             "En uso: el total imponible confirmado de la liquidación. "
             "Este sueldo manual queda como respaldo."
         )
+    arriendo_mensual = st.number_input(
+        "Arriendo mensual total (CLP)",
+        min_value=0,
+        value=0,
+        step=50_000,
+        help="Suma de tus arriendos mensuales (antes de gastos). No paga IUSC: "
+        "se usa en la proyección anual del Global Complementario.",
+    )
+    if float(arriendo_mensual) > 0:
+        st.caption(
+            "Ingresos mensuales totales: "
+            f"{clp_md(float(sueldo_manual) + float(arriendo_mensual))} "
+            "(sueldo + arriendos)."
+        )
     apv_actual = st.number_input(
         "APV-B mensual actual (CLP)",
         min_value=0,
@@ -375,6 +389,29 @@ elif res.apv_actual < res.apv_optimo - 1:
         f"Si subes el APV-B en **{clp_md(extra)}** al mes, el IUSC anual pasaría de "
         f"**{clp_md(res.iusc_anual_actual)}** a **{clp_md(res.iusc_anual_optimo)}**."
     )
+
+st.subheader("Simulador: juega con tu aporte")
+st.caption("Arrastra el slider y mira en vivo cómo cambian el impuesto y el ahorro.")
+tope_sim = int(res.tope_mensual_pesos)
+apv_sim = st.slider(
+    "APV-B mensual a simular (CLP)",
+    min_value=0,
+    max_value=tope_sim,
+    value=min(int(apv_actual), tope_sim),
+    step=10_000,
+)
+r_sim = simular(float(sueldo), float(apv_sim), params)
+ahorro_sim = simular(float(sueldo), 0, params).iusc_anual_actual - r_sim.iusc_anual_actual
+sim1, sim2, sim3 = st.columns(3)
+sim1.metric("IUSC anual con ese aporte", clp(r_sim.iusc_anual_actual))
+sim2.metric("IUSC mensual con ese aporte", clp(r_sim.iusc_mensual_actual))
+sim3.metric("Ahorro anual vs $0 APV", clp(ahorro_sim))
+if abs(apv_sim - res.apv_optimo) < 1:
+    st.success("Ese aporte coincide con el óptimo tributario.")
+elif apv_sim < res.apv_optimo:
+    st.caption(f"Te faltan {clp_md(res.apv_optimo - apv_sim)}/mes para el óptimo.")
+else:
+    st.caption("Sobre el óptimo: el exceso ya no reduce más impuesto.")
 
 st.subheader("Cuánto me devuelve el SII")
 impuesto_sin_apv = simular(float(sueldo), 0, params).iusc_anual_actual
@@ -555,6 +592,13 @@ for _, fila in propiedades.iterrows():
     es_dfl2 = False if pd.isna(marca) else bool(marca)
     filas_arriendo.append((fila["Arriendo anual (CLP)"], es_dfl2))
 arriendos_afectos, arriendos_exentos = separar_arriendos(filas_arriendo)
+if propiedades["Arriendo anual (CLP)"].sum() == 0 and float(arriendo_mensual) > 0:
+    # Atajo: tabla vacía → se usa el arriendo mensual de la barra lateral × 12.
+    arriendos_afectos = float(arriendo_mensual) * 12
+    st.caption(
+        f"Usando el arriendo mensual de la barra lateral × 12 ({clp_md(arriendos_afectos)}). "
+        "Detállalo por propiedad en la tabla para aplicar la exención DFL2."
+    )
 
 base_sin = base_anual_operacion_renta(res.rli_sin_apv, arriendos_afectos)
 base_con = base_anual_operacion_renta(res.rli_actual, arriendos_afectos)
@@ -621,3 +665,32 @@ with st.expander("Supuestos y puntos inciertos"):
   VAN de largo plazo ni la comparación con régimen A (bonificación 15%).
 """
     )
+
+st.subheader("Recomendación final")
+st.caption(
+    "Un resumen en palabras con tus cifras, generado por IA. No es asesoría tributaria: "
+    "verifica con tu empleador o un contador antes de cambiar tu APV."
+)
+st.session_state.setdefault("recomendacion_ia", None)
+if st.button("Generar recomendación con IA", type="primary"):
+    with st.spinner("Analizando tus cifras..."):
+        contexto = (
+            f"Sueldo bruto mensual: {clp_md(float(sueldo))}. "
+            f"Arriendo mensual total: {clp_md(float(arriendo_mensual))}. "
+            f"APV-B mensual actual: {clp_md(float(apv_actual))}. "
+            f"APV-B mensual óptimo: {clp_md(res.apv_optimo)}. "
+            f"Ahorro tributario anual llevando el APV al óptimo: {clp_md(res.ahorro_anual)}. "
+            f"IUSC anual con APV actual: {clp_md(res.iusc_anual_actual)}. "
+            f"IUSC anual con APV óptimo: {clp_md(res.iusc_anual_optimo)}. "
+            f"Tope APV mensual (50 UF): {clp_md(res.tope_mensual_pesos)}. "
+            f"Global Complementario anual con APV actual: {clp_md(gc_con)}. "
+            f"Ahorro anual de Global Complementario: {clp_md(ahorro_gc)}. "
+            f"Motivo del óptimo: {res.motivo_optimo}"
+        )
+        st.session_state["recomendacion_ia"] = generar_recomendacion(contexto) or "ERROR"
+rec = st.session_state["recomendacion_ia"]
+if rec and rec != "ERROR":
+    with st.container(border=True):
+        st.markdown(rec)
+elif rec == "ERROR":
+    st.warning("No se pudo generar la recomendación (revisa tu saldo de créditos o la terminal).")

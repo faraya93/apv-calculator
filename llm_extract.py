@@ -160,3 +160,36 @@ def extract_with_llm(pdf_text: str) -> dict[str, float | None] | None:
         return None
 
     return parsear_respuesta_llm(contenido)
+
+_SISTEMA_RECOMENDACION = """Eres un asesor previsional-tributario chileno explicándole
+a un trabajador dependiente. Te entregaré sus cifras ya calculadas (sueldo, arriendos,
+APV óptimo, ahorros). Redacta una recomendación final breve (máx 150 palabras) en
+español, en segunda persona, concreta: cuánto aportar al APV-B al mes, por qué, y qué
+revisar antes de decidir. Basa TODO lo numérico solo en las cifras entregadas; no
+inventes montos ni tasas. Cierra con: "Esto es una orientación, no asesoría tributaria"."""
+
+
+def generar_recomendacion(contexto: str) -> str | None:
+    """Un disparo LLM que redacta la recomendación final en prosa (sin chat)."""
+    texto = (contexto or "").strip()
+    if not texto:
+        return None
+    key = _api_key()
+    if not key:
+        return None
+    try:
+        from openai import OpenAI
+
+        cliente = OpenAI(api_key=key, base_url=_XAI_BASE_URL, timeout=_TIMEOUT_S)
+        respuesta = cliente.chat.completions.create(
+            model=MODEL,
+            temperature=0.3,
+            messages=[
+                {"role": "system", "content": _SISTEMA_RECOMENDACION},
+                {"role": "user", "content": texto},
+            ],
+        )
+        return (respuesta.choices[0].message.content or "").strip() or None
+    except Exception as exc:  # noqa: BLE001
+        print(f"[llm_extract] recomendación falló: {type(exc).__name__}: {exc}")
+        return None
