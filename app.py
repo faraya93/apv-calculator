@@ -29,6 +29,7 @@ _CAMPOS_LLM = {
     "imponible": "total_imponible",
     "afp": "descuento_afp",
     "cesantia": "descuento_cesantia",
+    "impuesto_unico": "impuesto_unico",
 }
 
 st.set_page_config(

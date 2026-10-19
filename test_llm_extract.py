@@ -85,3 +85,20 @@ def test_valores_no_positivos_pasan_a_null():
         "descuento_cesantia": None,
         "sueldo_bruto": 1_000_000.0,
     }
+
+def test_extrae_impuesto_unico():
+    datos = parsear_respuesta_llm(
+        '{"total_imponible": 2500000, "descuento_afp": 281750, '
+        '"descuento_cesantia": 15000, "impuesto_unico": 230036, '
+        '"sueldo_bruto": 2585000}'
+    )
+    assert datos["impuesto_unico"] == 230_036.0
+
+
+def test_impuesto_unico_null_cuando_no_aparece():
+    datos = parsear_respuesta_llm(
+        '{"total_imponible": 2500000, "descuento_afp": 281750, '
+        '"descuento_cesantia": 15000, "impuesto_unico": null, '
+        '"sueldo_bruto": 2585000}'
+    )
+    assert datos["impuesto_unico"] is None
