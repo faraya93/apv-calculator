@@ -13,12 +13,12 @@ import re
 from typing import Any
 
 # Un cambio de línea para actualizar el modelo.
-# grok-4.3: más barato y rápido entre los modelos de texto de uso general
+# grok-4.7: más barato y rápido entre los modelos de texto de uso general
 # (docs.x.ai/docs/models).
-MODEL = "grok-4.3"
+MODEL = "grok-4.7"
 
 _XAI_BASE_URL = "https://api.x.ai/v1"
-_TIMEOUT_S = 30.0
+_TIMEOUT_S = 120.0
 
 _CLAVES = (
     "total_imponible",
@@ -128,6 +128,7 @@ def parsear_respuesta_llm(contenido: str) -> dict[str, float | None] | None:
 def extract_with_llm(pdf_text: str) -> dict[str, float | None] | None:
     """Llama a Grok y devuelve los montos, o None si no hay key / falla / no valida."""
     texto = (pdf_text or "").strip()
+    texto = texto[:15000]  # acota el input: una liquidación cabe de sobra
     if not texto:
         return None
 
@@ -154,7 +155,8 @@ def extract_with_llm(pdf_text: str) -> dict[str, float | None] | None:
             ],
         )
         contenido = (respuesta.choices[0].message.content or "").strip()
-    except Exception:  # noqa: BLE001 — fallo silencioso hacia la UI
+    except Exception as exc:  # noqa: BLE001
+        print(f"[llm_extract] llamada a Grok falló: {type(exc).__name__}: {exc}")
         return None
 
     return parsear_respuesta_llm(contenido)
