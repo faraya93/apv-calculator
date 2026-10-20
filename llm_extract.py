@@ -20,21 +20,32 @@ MODEL = "grok-4.7"
 _XAI_BASE_URL = "https://api.x.ai/v1"
 _TIMEOUT_S = 120.0
 
+# Proveedor del LLM: "xai" (API con créditos) u "ollama" (local, gratis).
+# Para usar ollama, en tu Mac: brew install ollama (o descárgalo), luego
+# `ollama pull <modelo>` y `ollama serve`. Recién ahí cambia esto a "ollama".
+LLM_PROVIDER = "xai"
+
+_OLLAMA_BASE_URL = "http://localhost:11434/v1"
+_OLLAMA_MODEL = "qwen3:14b"  # ajusta al tag que veas en `ollama list`
+
 _CLAVES = (
     "total_imponible",
     "descuento_afp",
     "descuento_cesantia",
+    "impuesto_unico",
     "sueldo_bruto",
 )
 
 _SYSTEM = """Eres un extractor de montos de liquidaciones de sueldo chilenas.
 Devuelve ÚNICAMENTE un JSON válido (sin markdown ni texto extra) con exactamente
-estas claves: total_imponible, descuento_afp, descuento_cesantia, sueldo_bruto.
+estas claves: total_imponible, descuento_afp, descuento_cesantia, impuesto_unico, sueldo_bruto.
 Usa null cuando no encuentres el valor en el texto. No inventes ni estimes números.
 Los montos deben ser números en pesos chilenos (sin puntos de miles ni símbolos).
 total_imponible es la base imponible / total haberes imponibles (no el sueldo bruto).
 descuento_afp es la cotización AFP a cargo del trabajador (no el SIS del empleador).
 descuento_cesantia es el seguro de cesantía a cargo del trabajador (no el del empleador).
+impuesto_unico es el impuesto único retenido en la liquidación ("impuesto único",
+"impuesto único de segunda categoría"); si no aparece desglosado, null.
 sueldo_bruto es el total de haberes o sueldo bruto si aparece; si no, null."""
 
 
@@ -53,6 +64,22 @@ def _api_key() -> str | None:
         return None
     texto = str(secreto).strip()
     return texto or None
+
+
+def _cliente_y_modelo() -> tuple[Any, str] | tuple[None, None]:
+    """Cliente OpenAI-compatible y modelo según LLM_PROVIDER."""
+    from openai import OpenAI
+
+    if LLM_PROVIDER == "ollama":
+        # Ollama no pide key real; la librería exige un string cualquiera.
+        return (
+            OpenAI(api_key="ollama", base_url=_OLLAMA_BASE_URL, timeout=_TIMEOUT_S),
+            _OLLAMA_MODEL,
+        )
+    key = _api_key()
+    if not key:
+        return None, None
+    return OpenAI(api_key=key, base_url=_XAI_BASE_URL, timeout=_TIMEOUT_S), MODEL
 
 
 def _a_positivo_o_null(valor: Any) -> float | None:
@@ -126,22 +153,18 @@ def parsear_respuesta_llm(contenido: str) -> dict[str, float | None] | None:
 
 
 def extract_with_llm(pdf_text: str) -> dict[str, float | None] | None:
-    """Llama a Grok y devuelve los montos, o None si no hay key / falla / no valida."""
+    """Llama al LLM y devuelve los montos, o None si no hay key / falla / no valida."""
     texto = (pdf_text or "").strip()
     texto = texto[:15000]  # acota el input: una liquidación cabe de sobra
     if not texto:
         return None
 
-    key = _api_key()
-    if not key:
-        return None
-
     try:
-        from openai import OpenAI
-
-        cliente = OpenAI(api_key=key, base_url=_XAI_BASE_URL, timeout=_TIMEOUT_S)
+        cliente, modelo = _cliente_y_modelo()
+        if cliente is None:
+            return None
         respuesta = cliente.chat.completions.create(
-            model=MODEL,
+            model=modelo,
             temperature=0,
             messages=[
                 {"role": "system", "content": _SYSTEM},
@@ -156,7 +179,7 @@ def extract_with_llm(pdf_text: str) -> dict[str, float | None] | None:
         )
         contenido = (respuesta.choices[0].message.content or "").strip()
     except Exception as exc:  # noqa: BLE001
-        print(f"[llm_extract] llamada a Grok falló: {type(exc).__name__}: {exc}")
+        print(f"[llm_extract] llamada LLM falló: {type(exc).__name__}: {exc}")
         return None
 
     return parsear_respuesta_llm(contenido)
@@ -174,15 +197,12 @@ def generar_recomendacion(contexto: str) -> str | None:
     texto = (contexto or "").strip()
     if not texto:
         return None
-    key = _api_key()
-    if not key:
-        return None
     try:
-        from openai import OpenAI
-
-        cliente = OpenAI(api_key=key, base_url=_XAI_BASE_URL, timeout=_TIMEOUT_S)
+        cliente, modelo = _cliente_y_modelo()
+        if cliente is None:
+            return None
         respuesta = cliente.chat.completions.create(
-            model=MODEL,
+            model=modelo,
             temperature=0.3,
             messages=[
                 {"role": "system", "content": _SISTEMA_RECOMENDACION},
