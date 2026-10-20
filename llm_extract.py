@@ -26,7 +26,9 @@ _TIMEOUT_S = 120.0
 #LLM_PROVIDER = "xai"
 LLM_PROVIDER = "ollama"
 
-_OLLAMA_BASE_URL = "http://localhost:11434/v1"
+# Dentro de Docker, localhost es el contenedor, no tu Mac: al correr la
+# imagen pasa -e OLLAMA_BASE_URL=http://host.docker.internal:11434/v1
+_OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 _OLLAMA_MODEL = "llama3.1:latest"  # ajusta al tag que veas en `ollama list`
 
 _CLAVES = (
