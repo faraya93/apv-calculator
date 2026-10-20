@@ -23,10 +23,11 @@ _TIMEOUT_S = 120.0
 # Proveedor del LLM: "xai" (API con créditos) u "ollama" (local, gratis).
 # Para usar ollama, en tu Mac: brew install ollama (o descárgalo), luego
 # `ollama pull <modelo>` y `ollama serve`. Recién ahí cambia esto a "ollama".
-LLM_PROVIDER = "xai"
+#LLM_PROVIDER = "xai"
+LLM_PROVIDER = "ollama"
 
 _OLLAMA_BASE_URL = "http://localhost:11434/v1"
-_OLLAMA_MODEL = "qwen3:14b"  # ajusta al tag que veas en `ollama list`
+_OLLAMA_MODEL = "llama3.1:latest"  # ajusta al tag que veas en `ollama list`
 
 _CLAVES = (
     "total_imponible",
