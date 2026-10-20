@@ -185,12 +185,17 @@ def extract_with_llm(pdf_text: str) -> dict[str, float | None] | None:
 
     return parsear_respuesta_llm(contenido)
 
-_SISTEMA_RECOMENDACION = """Eres un asesor previsional-tributario chileno explicándole
-a un trabajador dependiente. Te entregaré sus cifras ya calculadas (sueldo, arriendos,
-APV óptimo, ahorros). Redacta una recomendación final breve (máx 150 palabras) en
-español, en segunda persona, concreta: cuánto aportar al APV-B al mes, por qué, y qué
-revisar antes de decidir. Basa TODO lo numérico solo en las cifras entregadas; no
-inventes montos ni tasas. Cierra con: "Esto es una orientación, no asesoría tributaria"."""
+# Redactado como "explicador", no como "asesor": los modelos pequeños locales
+# (ej. llama3.1) rechazan el rol de asesor tributario por su ajuste de seguridad.
+_SISTEMA_RECOMENDACION = """Te entregaré las cifras ya calculadas por un simulador
+tributario chileno (sueldo, APV-B actual y óptimo, impuestos y ahorros estimados).
+Tu tarea es explicar esos resultados en palabras simples, en español y en segunda
+persona (máx 150 palabras): qué APV-B deja el impuesto más bajo según el cálculo,
+y cómo cambian impuesto y ahorro si el aporte fuera menor o mayor.
+Basa TODO lo numérico únicamente en las cifras entregadas; no inventes montos,
+tasas ni plazos. No des consejos de inversión ni previsionales: limita tu texto a
+explicar lo que muestran los números. Cierra con: "Esto es una orientación,
+no asesoría tributaria"."""
 
 
 def generar_recomendacion(contexto: str) -> str | None:
