@@ -22,6 +22,7 @@ from engine import (
     simular,
 )
 from liquidacion import leer_liquidacion
+import asistente
 from llm_extract import extract_with_llm, generar_recomendacion
 
 # Campos que el respaldo por IA puede completar (claves locales → clave LLM).
@@ -695,3 +696,30 @@ if rec and rec != "ERROR":
         st.markdown(rec)
 elif rec == "ERROR":
     st.warning("No se pudo generar la recomendación (revisa tu saldo de créditos o la terminal).")
+
+st.divider()
+st.subheader("Asistente: encuentra tu equilibrio")
+st.caption(
+    "El óptimo tributario suele exigir el aporte máximo. Pregúntale por alternativas: "
+    "el asistente usa el mismo motor de cálculo (no inventa cifras) y compara aportes "
+    "menores, como el mínimo para bajar de tramo, según tu liquidez."
+)
+_ctx_chat = {
+    "sueldo_bruto": float(sueldo),
+    "utm": float(params.utm),
+    "uf": float(params.uf),
+    "comision_afp": float(params.comision_afp),
+    "contrato_indefinido": bool(params.contrato_indefinido),
+}
+if "chat_apv" not in st.session_state:
+    st.session_state["chat_apv"] = []
+for _m in st.session_state["chat_apv"]:
+    with st.chat_message(_m["role"]):
+        st.markdown(_m["content"])
+_pregunta = st.chat_input("Ej: ¿cuánto necesito aportar para bajar de tramo?")
+if _pregunta:
+    st.session_state["chat_apv"].append({"role": "user", "content": _pregunta})
+    with st.spinner("Consultando el motor de cálculo..."):
+        _respuesta = asistente.responder(st.session_state["chat_apv"], _ctx_chat)
+    st.session_state["chat_apv"].append({"role": "assistant", "content": _respuesta})
+    st.rerun()
